@@ -155,6 +155,76 @@ write_kiosk_block() {
   fi
 }
 
+LABWC_HIDECURSOR_BEGIN="<!-- KIOSK_HIDE_CURSOR_BEGIN -->"
+LABWC_HIDECURSOR_END="<!-- KIOSK_HIDE_CURSOR_END -->"
+
+update_labwc_rcxml_hidecursor() {
+  local rc_xml="$1"
+  local mode="$2"
+
+  python3 - "$rc_xml" "$mode" "$LABWC_HIDECURSOR_BEGIN" "$LABWC_HIDECURSOR_END" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
+begin = sys.argv[3]
+end = sys.argv[4]
+
+keybind_block = f'''  {begin}
+  <keybind key="W-h">
+    <action name="HideCursor"/>
+    <action name="WarpCursor" to="output" x="1" y="1"/>
+  </keybind>
+  {end}'''
+
+minimal_rcxml = f'''<?xml version="1.0"?>
+<labwc_config>
+  <keyboard>
+{keybind_block}
+  </keyboard>
+</labwc_config>
+'''
+
+if path.exists():
+    text = path.read_text(encoding='utf-8')
+else:
+    text = ''
+
+patterns = [
+    rf"\n?[ \t]*{re.escape(begin)}.*?{re.escape(end)}[ \t]*\n?",
+    r'\n?[ \t]*<keybind\s+key="W-h">.*?<action\s+name="HideCursor"\s*/>.*?</keybind>[ \t]*\n?',
+]
+for pattern in patterns:
+    text = re.sub(pattern, '\n', text, flags=re.S)
+
+text = re.sub(r'\n{3,}', '\n\n', text)
+
+if mode == 'disable':
+    if path.exists():
+        path.write_text(text, encoding='utf-8')
+    sys.exit(0)
+
+if not text.strip():
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(minimal_rcxml, encoding='utf-8')
+    sys.exit(0)
+
+if re.search(r'<keyboard\b[^>]*/>', text):
+    text = re.sub(r'<keyboard\b[^>]*/>', f'<keyboard>\n{keybind_block}\n</keyboard>', text, count=1)
+elif re.search(r'</keyboard>', text):
+    text = re.sub(r'</keyboard>', f'{keybind_block}\n</keyboard>', text, count=1)
+elif re.search(r'</labwc_config>', text):
+    text = re.sub(r'</labwc_config>', f'  <keyboard>\n{keybind_block}\n  </keyboard>\n</labwc_config>', text, count=1)
+else:
+    text = text.rstrip() + '\n\n' + minimal_rcxml
+
+text = re.sub(r'\n{3,}', '\n\n', text)
+path.write_text(text, encoding='utf-8')
+PY
+}
+
 # =========================
 # cmdline.txt paraméter-szintű kezelés
 # (a cmdline.txt egyetlen sor, paramétereket cserélünk benne)
@@ -784,6 +854,10 @@ fi
 # 8) Egérkurzor elrejtése (wtype) - autostart blokkba
 # =========================
 echo
+LABWC_CONFIG_DIR="$HOME_DIR/.config/labwc"
+mkdir -p "$LABWC_CONFIG_DIR"
+RC_XML="$LABWC_CONFIG_DIR/rc.xml"
+
 if ask_user "Szeretnéd elrejteni az egérkurzort kioszk módban?" "y"; then
   if ! command -v wtype > /dev/null 2>&1; then
     echo -e "\e[90mwtype telepítése folyamatban, kérlek várj...\e[0m"
@@ -791,36 +865,9 @@ if ask_user "Szeretnéd elrejteni az egérkurzort kioszk módban?" "y"; then
     spinner $! "wtype telepítése..."
   fi
 
-  LABWC_CONFIG_DIR="$HOME_DIR/.config/labwc"
-  mkdir -p "$LABWC_CONFIG_DIR"
-  RC_XML="$LABWC_CONFIG_DIR/rc.xml"
-
-  if [ -f "$RC_XML" ]; then
-    if grep -q "HideCursor" "$RC_XML" 2>/dev/null; then
-      echo -e "\e[33mAz rc.xml már tartalmaz HideCursor beállítást. Nem módosítom.\e[0m"
-    else
-      echo -e "\e[90mHideCursor billentyűparancs hozzáadása a meglévő rc.xml-hez...\e[0m"
-      if grep -q "</keyboard>" "$RC_XML"; then
-        sed -i 's|</keyboard>|  <keybind key="W-h">\n    <action name="HideCursor"/>\n    <action name="WarpCursor" to="output" x="1" y="1"/>\n  </keybind>\n</keyboard>|' "$RC_XML"
-      else
-        echo -e "\e[33mNem található </keyboard> tag az rc.xml-ben. Kérlek add hozzá kézzel a HideCursor billentyűparancsot.\e[0m"
-      fi
-    fi
-  else
-    echo -e "\e[90mrc.xml létrehozása HideCursor beállítással...\e[0m"
-    cat > "$RC_XML" << 'EOL'
-<?xml version="1.0"?>
-<labwc_config>
-  <keyboard>
-    <keybind key="W-h">
-      <action name="HideCursor"/>
-      <action name="WarpCursor" to="output" x="1" y="1"/>
-    </keybind>
-  </keyboard>
-</labwc_config>
-EOL
-    echo -e "\e[32m✔\e[0m rc.xml sikeresen létrehozva!"
-  fi
+  echo -e "\e[90mHideCursor billentyűparancs beállítása az rc.xml-ben...\e[0m"
+  update_labwc_rcxml_hidecursor "$RC_XML" "enable"
+  echo -e "\e[32m✔\e[0m HideCursor billentyűparancs beállítva: $RC_XML"
 
   AUTOSTART_NEEDS_UPDATE="y"
   if [ -z "$AUTOSTART_BLOCK" ]; then
@@ -832,6 +879,11 @@ EOL
   AUTOSTART_BLOCK+="# Kurzor elrejtése indításkor (Win+H billentyű szimulálása)\n"
   AUTOSTART_BLOCK+="(sleep 5 && wtype -M logo -k h -m logo) &\n"
   AUTOSTART_BLOCK+="\n"
+else
+  echo -e "\e[90mHideCursor beállítás eltávolítása az rc.xml-ből (ha létezett)...\e[0m"
+  update_labwc_rcxml_hidecursor "$RC_XML" "disable"
+
+  AUTOSTART_NEEDS_UPDATE="y"
 fi
 
 # =========================
@@ -1097,8 +1149,13 @@ fi
 
 # 1) labwc autostart KIOSKPARANCS blokk kiírása (ha kellett)
 if [ "$AUTOSTART_NEEDS_UPDATE" = "y" ]; then
-  write_kiosk_block "$LABWC_AUTOSTART_FILE" "$AUTOSTART_BLOCK"
-  echo -e "\e[32m✔\e[0m labwc autostart frissítve (KIOSKPARANCS blokk): $LABWC_AUTOSTART_FILE"
+  if [ -n "$AUTOSTART_BLOCK" ]; then
+    write_kiosk_block "$LABWC_AUTOSTART_FILE" "$AUTOSTART_BLOCK"
+    echo -e "\e[32m✔\e[0m labwc autostart frissítve (KIOSKPARANCS blokk): $LABWC_AUTOSTART_FILE"
+  else
+    remove_kiosk_block "$LABWC_AUTOSTART_FILE"
+    echo -e "\e[32m✔\e[0m labwc autostart KIOSKPARANCS blokk eltávolítva: $LABWC_AUTOSTART_FILE"
+  fi
 fi
 
 # 2) config.txt KIOSKPARANCS blokk kiírása (ha kellett)
