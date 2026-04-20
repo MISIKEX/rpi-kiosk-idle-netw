@@ -8,7 +8,7 @@ tmpdir="$(mktemp -d)" && (
   trap 'cd ~; rm -rf "$tmpdir"' EXIT
 
   echo "TEMP mappa: $tmpdir"
-  git clone --depth 1 https://github.com/MISIKEX/rpi-kiosk-netw.git "$tmpdir"
+  git clone --depth 1 https://github.com/MISIKEX/rpi-kiosk-idle-netw.git "$tmpdir"
   cd "$tmpdir"
 
   chmod +x kiosk_idle_netwatch_setup.sh
