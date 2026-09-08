@@ -199,6 +199,13 @@ patterns = [
 for pattern in patterns:
     text = re.sub(pattern, '\n', text, flags=re.S)
 
+# Régi hibás installer által hozzáfűzött, kiürült második XML dokumentum eltávolítása.
+text = re.sub(
+    r'\s*<\?xml\s+version="1\.0"\s*\?>\s*<labwc_config>\s*<keyboard>\s*</keyboard>\s*</labwc_config>\s*$',
+    '\n',
+    text,
+    flags=re.S,
+)
 text = re.sub(r'\n{3,}', '\n\n', text)
 
 if mode == 'disable':
@@ -217,8 +224,10 @@ elif re.search(r'</keyboard>', text):
     text = re.sub(r'</keyboard>', f'{keybind_block}\n</keyboard>', text, count=1)
 elif re.search(r'</labwc_config>', text):
     text = re.sub(r'</labwc_config>', f'  <keyboard>\n{keybind_block}\n  </keyboard>\n</labwc_config>', text, count=1)
+elif re.search(r'</openbox_config>', text):
+    text = re.sub(r'</openbox_config>', f'  <keyboard>\n{keybind_block}\n  </keyboard>\n</openbox_config>', text, count=1)
 else:
-    text = text.rstrip() + '\n\n' + minimal_rcxml
+    raise SystemExit(f"Nem támogatott labwc rc.xml szerkezet: {path}")
 
 text = re.sub(r'\n{3,}', '\n\n', text)
 path.write_text(text, encoding='utf-8')
@@ -904,7 +913,7 @@ if ask_user "Szeretnéd telepíteni a splash képernyőt?" "y"; then
     sudo plymouth-set-default-theme pix > /dev/null 2>&1 || true
 
     echo -e "\e[90mEgyedi splash logó letöltése...\e[0m"
-    SPLASH_URL="https://raw.githubusercontent.com/MISIKEX/rpi-kiosk/main/_assets/splashscreens/splash.png"
+    SPLASH_URL="https://raw.githubusercontent.com/MISIKEX/rpi-kiosk-core/main/_assets/splashscreens/splash.png"
     SPLASH_PATH="/usr/share/plymouth/themes/pix/splash.png"
 
     if sudo wget -q "$SPLASH_URL" -O "$SPLASH_PATH"; then
